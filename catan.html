@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Catane — Jouable avec extensions</title>
+<style>
+  :root { --bg:#0e2a1f; --panel:#123626; --line:#1e5238; --gold:#e5c76b; --txt:#e8f2e8; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui, sans-serif; }
+  header { padding:10px 16px; background:#0b2418; border-bottom:2px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; color:var(--gold); letter-spacing:1px; }
+  #wrap { display:flex; gap:12px; padding:12px; align-items:flex-start; flex-wrap:wrap; }
+  #board { background:var(--panel); border:1px solid var(--line); border-radius:12px; flex:1 1 620px; max-width:840px; }
+  #dash { flex:1 1 320px; min-width:300px; display:flex; flex-direction:column; gap:10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .card h3 { margin:0 0 8px; font-size:14px; text-transform:uppercase; color:var(--gold); letter-spacing:1px; }
+  .res { display:flex; flex-wrap:wrap; gap:6px; }
+  .res span { background:#0b2418; border:1px solid var(--line); border-radius:8px; padding:3px 8px; font-size:13px; }
+  .players { display:flex; flex-direction:column; gap:6px; }
+  .p { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; border:1px solid transparent; font-size:13px; }
+  .p.cur { border-color:var(--gold); background:#0b2418; }
+  .dot { width:14px; height:14px; border-radius:50%; flex:none; border:2px solid #0006; }
+  button { background:#1e5238; color:var(--txt); border:1px solid #2e7a52; border-radius:8px; padding:7px 12px; cursor:pointer; font-size:13px; }
+  button:hover:not(:disabled) { background:#2e7a52; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.mode.active { background:var(--gold); color:#201a06; border-color:var(--gold); font-weight:bold; }
+  .btns { display:flex; flex-wrap:wrap; gap:6px; }
+  #log { font-size:12px; max-height:180px; overflow-y:auto; line-height:1.5; }
+  #log div { border-bottom:1px solid #14301f; padding:1px 0; }
+  .dice { font-size:30px; letter-spacing:6px; }
+  .setup { max-width:560px; margin:40px auto; }
+  .setup input[type=text] { background:#0b2418; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:14px; width:220px; }
+  .setup label { display:block; margin:8px 0; font-size:14px; }
+  .cfgplayers { display:grid; grid-template-columns:auto 1fr auto; gap:6px; align-items:center; font-size:14px; }
+  .cfgplayers input { width:100%; padding:5px 8px; background:#0b2418; border:1px solid var(--line); color:var(--txt); border-radius:6px; }
+  .hint { font-size:12px; color:#a8c8a8; margin-top:6px; }
+  .vpbadge { margin-left:auto; font-weight:bold; color:var(--gold); }
+  .fishrow { display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px; }
+  #barbar { font-size:12px; color:#f0a05a; }
+  select { background:#0b2418; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px; }
+  .barbar-track { display:flex; gap:3px; margin-top:4px; }
+  .barbar-track i { width:14px; height:8px; background:#0b2418; border:1px solid var(--line); }
+  .barbar-track i.on { background:#d0603a; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="setup card" id="setup">
+    <h3>⚙️ Configuration de la partie</h3>
+    <label>Seed de génération du plateau : <input type="text" id="seed" value="catane-2026" /> <button id="rndSeed">🎲 Aléatoire</button></label>
+    <label><input type="checkbox" id="extMarin" checked /> Extension Marin (mers, navires, explorateur)</label>
+    <label><input type="checkbox" id="extPecheurs" checked /> Extension Pêcheurs (lac, poissons)</label>
+    <label><input type="checkbox" id="extChevaliers" /> Extension Chevaliers (marchandises, barbares)</label>
+    <div style="height:10px"></div>
+    <div class="cfgplayers" id="cfgPlayers"></div>
+    <div style="height:12px"></div>
+    <button id="start" style="font-size:16px">▶ Commencer la partie</button>
+    <p class="hint">Même seed → même plateau. Règles de base + versions simplifiées des extensions. 2 à 4 joueurs sur le même écran.</p>
+  </div>
+
+  <div id="game" style="display:none">
+    <header>
+      <h1>⚓ Catane</h1>
+      <span class="dice" id="dice">🎲</span>
+      <span style="font-size:13px">Seed : <b id="seedLbl"></b></span>
+      <button id="newGame" style="margin-left:auto">↺ Nouvelle partie</button>
+    </header>
+    <div id="wrap">
+      <div id="board"></div>
+      <div id="dash">
+        <div class="card" id="curCard">
+          <h3 id="curTitle">Tour</h3>
+          <div class="res" id="curRes"></div>
+          <div class="fishrow" id="fishRow"></div>
+          <div style="height:8px"></div>
+          <div class="btns" id="actions"></div>
+          <p class="hint" id="hint"></p>
+        </div>
+        <div class="card">
+          <h3>Joueurs</h3>
+          <div class="players" id="players"></div>
+        </div>
+        <div class="card" id="tradeCard">
+          <h3>Commerce avec la banque</h3>
+          <div class="btns" style="align-items:center">
+            Donner <select id="giveRes"></select> recevoir <select id="getRes"></select>
+            <button id="doTrade">Échanger</button>
+          </div>
+          <p class="hint" id="tradeInfo"></p>
+        </div>
+        <div class="card">
+          <h3>Journal</h3>
+          <div id="log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= PRNG seedé ================= */
+function hashSeed(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+let rng;
+const rnd=()=>rng();
+const pick=(arr)=>arr[Math.floor(rnd()*arr.length)];
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ================= Constantes ================= */
+const RES=["bois","brique","laine","blé","minerai"];
+const RES_EMOJI={bois:"🪵",brique:"🧱",laine:"🐑",blé:"🌾",minerai:"⛏️",poisson:"🐟",papier:"📜",métal:"💰",tissu:"🧵"};
+const TERRAIN_RES={forêt:"bois",colline:"brique",prairie:"laine",champ:"blé",montagne:"minerai"};
+const TERRAIN_FILL={forêt:"#2f6d3f",colline:"#a0522d",prairie:"#8fce5a",champ:"#d9b64a",montagne:"#7a7d85",désert:"#cdb98a",lac:"#3f8fbf",mer:"#1b4f72"};
+const CITY_COMM={forêt:"papier",montagne:"métal",prairie:"tissu"}; // ext Chevaliers
+const COSTS={route:{bois:1,brique:1},navire:{bois:1,laine:1},colonie:{bois:1,brique:1,laine:1,blé:1},ville:{blé:2,minerai:3},carte:{laine:1,blé:1,minerai:1},amelioration:{papier:1,métal:1,tissu:1}};
+const DEV_TYPES=["chevalier","chevalier","chevalier","chevalier","chevalier","monopole","invention","routes","progrès","progrès"];
+const COLORS=["#d0392f","#2f6fd0","#2fa04f","#d09a2f"];
+const VERT_NAMES=["rouge","bleu","vert","jaune"];
+
+/* ================= État ================= */
+let G=null; // état de la partie
+
+/* ================= Génération du plateau ================= */
+function buildBoard(seedStr, ext){
+  rng=mulberry32(hashSeed(seedStr));
+  const R=48, dx=Math.sqrt(3)*R, dy=1.5*R;
+  const rows=[3,4,5,4,3];
+  const hexes=[]; let id=0;
+  const total=19;
+  const terrains=[];
+  RES.forEach(r=>{const n={bois:4,brique:3,laine:4,blé:4,minerai:3}[r];for(let i=0;i<n;i++)terrains.push(Object.keys(TERRAIN_RES).find(t=>TERRAIN_RES[t]===r));});
+  terrains.push("désert");
+  shuffle(terrains);
+  if(ext.pecheurs){ // le désert devient un lac poissonneux
+    const d=terrains.indexOf("désert"); terrains[d]="lac";
+  }
+  const numbers=shuffle([2,3,3,4,4,5,5,6,6,8,8,9,9,10,10,11,11,12]);
+  const cx0=400, cy0=340; let ni=0;
+  for(let r=0;r<rows.length;r++){
+    for(let c=0;c<rows[r];c++){
+      const cx=cx0+(c-(rows[r]-1)/2)*dx;
+      const cy=cy0+(r-2)*dy;
+      const t=terrains[id];
+      hexes.push({id:id, x:cx, y:cy, r:R, terrain:t, number:(t==="désert"||t==="lac")?null:numbers[ni++], robber:false});
+      id++;
+    }
+  }
+  // sommets (pointy-top)
+  const vmap=new Map();
+  function vid(px,py){
+    const k=Math.round(px)+","+Math.round(py);
+    if(!vmap.has(k))vmap.set(k,{id:vmap.size,x:px,y:py,building:null,hexes:[]});
+    return vmap.get(k);
+  }
+  const edgeCount=new Map();
+  hexes.forEach(h=>{
+    const pts=[];
+    for(let i=0;i<6;i++){
+      const a=Math.PI/180*(60*i-90);
+      const v=vid(h.x+ h.r*Math.cos(a), h.y+h.r*Math.sin(a));
+      pts.push(v); v.hexes.push(h.id);
+    }
+    for(let i=0;i<6;i++){
+      const a=pts[i],b=pts[(i+1)%6];
+      const k=Math.min(a.id,b.id)+"-"+Math.max(a.id,b.id);
+      edgeCount.set(k,(edgeCount.get(k)||0)+1);
+    }
+  });
+  const vertices=[...vmap.values()];
+  // arêtes
+  const edges=[]; const eset=new Set();
+  hexes.forEach(h=>{
+    const pts=[];
+    for(let i=0;i<6;i++){
+      const a=Math.PI/180*(60*i-90);
+      pts.push(vid(h.x+h.r*Math.cos(a),h.y+h.r*Math.sin(a)));
+    }
+    for(let i=0;i<6;i++){
+      const a=pts[i],b=pts[(i+1)%6];
+      const k=Math.min(a.id,b.id)+"-"+Math.max(a.id,b.id);
+      if(eset.has(k))continue; eset.add(k);
+      edges.push({id:edges.length,a:a.id,b:b.id,owner:null,ship:false,sea:edgeCount.get(k)===1,port:null});
+    }
+  });
+  // ports sur des arêtes de mer (ext Marin : 9 ports, sinon 9 aussi pour le commerce)
+  const seaEdges=edges.filter(e=>e.sea);
+  shuffle(seaEdges);
+  const portTypes=shuffle(["bois","brique","laine","blé","minerai","3:1","3:1","3:1","3:1"]);
+  for(let i=0;i<Math.min(9,seaEdges.length);i++)seaEdges[i].port=portTypes[i];
+  return {hexes,vertices,edges,seed:seedStr};
+}
+
+/* ================= Partie ================= */
+function newGame(cfg){
+  const board=buildBoard(cfg.seed,cfg.ext);
+  const names=cfg.names.filter(n=>n.trim()!=="");
+  const n=names.length;
+  const players=names.map((nm,i)=>({
+    name:nm,color:COLORS[i],
+    res:{bois:0,brique:0,laine:0,blé:0,minerai:0,poisson:0,papier:0,métal:0,tissu:0},
+    dev:[],knights:0,roads:15,ships:cfg.ext.marin?15:0,sett:5,cities:4,vp:0,
+    fishVP:0, walls:0, explorateur:false
+  }));
+  const devDeck=shuffle(DEV_TYPES.slice());
+  if(cfg.ext.chevaliers)for(let i=0;i<5;i++)devDeck.push("chevalier");
+  G={board,players,n,cur:0,ext:cfg.ext,devDeck,mode:null,setup:{round:1,order:Array.from({length:n},(_,i)=>i),step:0,pos:0,lastV:null},started:false,barbar:0,longest:null,army:null,dice:null,log:[],phase:"setup",fishBank:10};
+  const desert=G.board.hexes.find(h=>h.terrain==="désert"||h.terrain==="lac")||G.board.hexes[9];
+  desert.robber=true;
+  // cible PV
+  G.vpTarget=10+(cfg.ext.chevaliers?2:0)+(cfg.ext.marin?1:0)+(cfg.ext.pecheurs?0:0);
+  logMsg("Partie créée — seed « "+cfg.seed+" ». Objectif : "+G.vpTarget+" PV.");
+  logMsg("Placement initial : colonie + route gratuite, dans l'ordre aller-retour.");
+  render(); setMode(null);
+}
+
+function cur(){return G.players[G.cur];}
+function logMsg(m){G.log.unshift(m);const el=document.getElementById("log");el.innerHTML=G.log.map(x=>"<div>"+x+"</div>").join("");el.scrollTop=0;}
+
+/* ================= Gains & dés ================= */
+function rollDice(){
+  const d1=1+Math.floor(Math.random()*6), d2=1+Math.floor(Math.random()*6);
+  const v=d1+d2; G.dice=v;
+  logMsg("🎲 "+cur().name+" lance les dés : <b>"+d1+" + "+d2+" = "+v+"</b>");
+  if(v===7){
+    // voleur + barbares (ext)
+    if(G.ext.chevaliers){G.barbar=Math.min(7,G.barbar+1);logMsg("⚠️ Les barbares approchent ("+G.barbar+"/7)");}
+    G.players.forEach(p=>{let t=RES.reduce((s,r)=>s+p.res[r],0)+p.res.papier+p.res.métal+p.res.tissu;
+      if(t>7){let drop=Math.floor((t-7)/2);for(const r of[...RES,"papier","métal","tissu"]){while(drop>0&&p.res[r]>0){p.res[r]--;drop--;}}logMsg("☠️ "+p.name+" perd la moitié de ses cartes (trop de cartes).");}});
+    G.mode="robber"; setHint("Cliquez sur un hexagone terrestre pour déplacer le voleur.");
+  } else {
+    distribute(v);
+    if(G.ext.pecheurs)collectFish();
+  }
+  render();
+}
+function distribute(v){
+  G.board.hexes.forEach(h=>{
+    if(h.number!==v||h.robber)return;
+    const res=TERRAIN_RES[h.terrain]; if(!res)return;
+    h; // lake handled separately
+  });
+  G.board.vertices.forEach(vx=>{
+    if(!vx.building)return;
+    vx.hexes.forEach(hid=>{
+      const h=G.board.hexes[hid];
+      if(h.number!==v||h.robber)return;
+      const res=TERRAIN_RES[h.terrain]; if(!res)return;
+      const p=G.players[vx.building.player];
+      p.res[res]+=vx.building.type==="ville"?2:1;
+      if(vx.building.type==="ville"&&G.ext.chevaliers&&CITY_COMM[h.terrain]){p.res[CITY_COMM[h.terrain]]+=1;}
+    });
+  });
+  logMsg("📦 Production distribuée pour le "+v+".");
+}
+function collectFish(){
+  G.board.vertices.forEach(vx=>{
+    if(!vx.building)return;
+    const nearLake=vx.hexes.some(hid=>G.board.hexes[hid].terrain==="lac");
+    if(nearLake){const p=G.players[vx.building.player];p.res.poisson+=vx.building.type==="ville"?2:1;}
+  });
+}
+
+/* ================= Construction ================= */
+function canPay(p,cost){return Object.entries(cost).every(([r,n])=>p.res[r]>=n);}
+function pay(p,cost){for(const[r,n]of Object.entries(cost))p.res[r]-=n;}
+function edgesOfVertex(v){return G.board.edges.filter(e=>e.a===v.id||e.b===v.id);}
+function vertexOwnedNear(p,vid){return edgesOfVertex(G.board.vertices[vid]).some(e=>e.owner===p);}
+function hasSettlement(p,vid){const v=G.board.vertices[vid];return v.building&&v.building.player===p;}
+
+function tryBuildRoad(p,e){
+  const isSea=e.sea;
+  if(isSea&&!G.ext.marin){return "Navire impossible sans l'extension Marin.";}
+  if(e.owner)return "Cette arête est déjà occupée.";
+  if(isSea? p.ships<=0 : p.roads<=0)return "Plus de "+(isSea?"navires":"routes")+" disponibles.";
+  const cost=isSea?COSTS.navire:COSTS.route;
+  if(G.phase!=="setup"&&!canPay(p,cost))return "Ressources insuffisantes.";
+  if(G.phase!=="setup"){
+    const ok=edgesOfVertex(G.board.vertices[e.a]).concat(edgesOfVertex(G.board.vertices[e.b])).some(x=>x.owner===p);
+    if(!ok)return "La route doit toucher votre réseau.";
+  } else {
+    // phase setup : doit toucher la colonie venant d'être posée
+    if(!(G.setup.lastV===e.a||G.setup.lastV===e.b))return "La route doit toucher votre nouvelle colonie.";
+  }
+  pay(p,cost); e.owner=G.cur; e.ship=isSea;
+  if(isSea)p.ships--;else p.roads--;
+  if(G.ext.marin&&isSea&&!p.explorateur){p.explorateur=true;p.vp+=1;logMsg("🚢 "+p.name+" Grand Explorateur : +1 PV !");}
+  logMsg((isSea?"🚢 ":"🛣️ ")+p.name+" construit "+(isSea?"un navire":"une route")+".");
+  return null;
+}
+function tryBuildSettlement(p,v){
+  if(v.building)return "Sommet occupé.";
+  if(p.sett<=0)return "Plus de colonies disponibles.";
+  if(G.phase!=="setup"){
+    if(!vertexOwnedNear(G.cur,v.id))return "La colonie doit toucher votre route/navire.";
+    if(edgesOfVertex(v).some(e=>{const o=G.board.vertices[e.a].id===v.id?e.b:e.a;return G.board.vertices[o].building;}))return "Trop près d'une autre colonie (règle de distance).";
+    if(!canPay(p,COSTS.colonie))return "Ressources insuffisantes.";
+  }
+  if(G.phase!=="setup")pay(p,COSTS.colonie);
+  v.building={player:G.cur,type:"colonie"}; p.sett--; p.vp+=1;
+  logMsg("🏠 "+p.name+" fonde une colonie (+1 PV).");
+  if(G.ext.pecheurs&&v.hexes.some(hid=>G.board.hexes[hid].terrain==="lac"))logMsg("🐟 Colonie en bord de lac : elle rapportera du poisson.");
+  return null;
+}
+function tryBuildCity(p,v){
+  if(!v.building||v.building.player!==G.cur)return "Pas votre bâtiment.";
+  if(v.building.type==="ville")return "Déjà une ville.";
+  if(p.cities<=0)return "Plus de villes disponibles.";
+  if(!canPay(p,COSTS.ville))return "Ressources insuffisantes (2 blé + 3 minerai).";
+  pay(p,COSTS.ville); v.building.type="ville"; p.cities--; p.vp+=1;
+  logMsg("🏛️ "+p.name+" transforme une colonie en ville (+1 PV).");
+  return null;
+}
+
+/* ================= Routes / armée ================= */
+function longestRoad(p){
+  const own=G.board.edges.filter(e=>e.owner===p);
+  const adj=new Map();
+  own.forEach(e=>{(adj.get(e.a)||adj.set(e.a,[])).push(e.b);(adj.get(e.b)||adj.set(e.b,[])).push(e.a);});
+  let best=0;
+  for(const[start]of adj){
+    const seen=new Set([start]); let far=0;
+    const q=[[start,0]];
+    while(q.length){const[n,d]=q.shift();far=Math.max(far,d);
+      (adj.get(n)||[]).forEach(m=>{if(!seen.has(m)){seen.add(m);q.push([m,d+1]);}});}
+    best=Math.max(best,far);
+  }
+  return best;
+}
+function updateTrophies(){
+  let bl=null,bln=4;
+  G.players.forEach((p,i)=>{const l=longestRoad(i);if(l>bln){bln=l;bl=i;}});
+  if(bl!==null&&G.longest!==bl){
+    if(G.longest!==null)G.players[G.longest].vp-=2;
+    G.longest=bl;G.players[bl].vp+=2;
+    logMsg("🛣️ "+G.players[bl].name+" a la plus longue route ("+bln+") : +2 PV.");
+  }
+  let ba=null,bak=2;
+  G.players.forEach((p,i)=>{if(p.knights>bak){bak=p.knights;ba=i;}});
+  if(ba!==null&&G.army!==ba){
+    if(G.army!==null)G.players[G.army].vp-=2;
+    G.army=ba;G.players[ba].vp+=2;
+    logMsg("⚔️ "+G.players[ba].name+" possède la plus grande armée : +2 PV.");
+  }
+}
+
+/* ================= Cartes de développement ================= */
+function buyDev(){
+  const p=cur();
+  if(G.devDeck.length===0)return logMsg("❌ Plus de cartes de développement.");
+  if(!canPay(p,COSTS.carte))return logMsg("❌ Il faut 1 laine + 1 blé + 1 minerai.");
+  pay(p,COSTS.carte);
+  const c=G.devDeck.pop();
+  if(c==="progrès"){p.vp+=1;logMsg("📜 "+p.name+" tire une carte Progrès : +1 PV !");}
+  else{p.dev.push(c);logMsg("🂠 "+p.name+" achète une carte de développement.");}
+  checkWin(); render();
+}
+function playDev(type,giveRes,getRes){
+  const p=cur(); const i=p.dev.indexOf(type);
+  if(i<0)return logMsg("❌ Pas de carte "+type+" en main.");
+  if(type==="chevalier"){
+    p.dev.splice(i,1); p.knights++;
+    logMsg("⚔️ "+p.name+" active un chevalier ("+p.knights+" au total).");
+    updateTrophies();
+  } else if(type==="monopole"){
+    if(!giveRes)return logMsg("❌ Choisissez la ressource du monopole.");
+    let n=0;G.players.forEach(q=>{if(q!==p){n+=q.res[giveRes];q.res[giveRes]=0;}});
+    p.res[giveRes]+=n;logMsg("🎩 Monopole : "+p.name+" prend "+n+" "+RES_EMOJI[giveRes]+".");
+  } else if(type==="invention"){
+    if(!getRes)return logMsg("❌ Choisissez 2 ressources (même ressource ×2 accepté).");
+    p.res[getRes]+=2;logMsg("🔍 Invention : "+p.name+" reçoit 2 "+RES_EMOJI[giveRes]+".");
+  } else if(type==="routes"){
+    p.roads+=2;logMsg("🛣️ Découverte de routes : +2 routes gratuites.");
+  }
+  checkWin(); render();
+}
+
+/* ================= Commerce ================= */
+function ownsPort(pi,e){
+  const vA=G.board.vertices[e.a],vB=G.board.vertices[e.b];
+  return (vA.building&&vA.building.player===pi)||(vB.building&&vB.building.player===pi);
+}
+function tradeRatio(p,res){
+  // meilleur ratio pour p : 2 avec port spécifique possédé, 3 avec port 3:1, sinon 4
+  const pi=G.players.indexOf(p);
+  for(const e of G.board.edges){ if(e.port&&e.port===res&&ownsPort(pi,e))return 2; }
+  for(const e of G.board.edges){ if(e.port==="3:1"&&ownsPort(pi,e))return 3; }
+  return 4;
+}
+
+/* ================= Barbares (ext Chevaliers) ================= */
+function barbarianAttack(){
+  let weakest=null,wk=Infinity;
+  let strongest=null,sk=-1;
+  G.players.forEach((p,i)=>{if(p.knights<wk){wk=p.knights;weakest=i;}if(p.knights>sk){sk=p.knights;strongest=i;}});
+  const w=G.players[weakest];
+  let done=false;
+  for(const v of G.board.vertices){
+    if(v.building&&v.building.player===weakest&&v.building.type==="ville"){
+      v.building.type="colonie";w.cities++;w.sett--;w.vp-=1;done=true;
+      logMsg("🛡️ Les barbares frappent ! "+w.name+" perd une ville (colonne chevaliers trop faible).");
+      break;
+    }
+  }
+  if(!done)logMsg("🛡️ Les barbares attaquent, mais aucune ville n'est détruite.");
+  if(G.players[strongest].knights>0){G.players[strongest].vp+=1;logMsg("🏅 "+G.players[strongest].name+" Défenseur de Catane : +1 PV.");}
+  G.barbar=0; checkWin();
+}
+
+/* ================= Fin de tour / setup ================= */
+function endTurn(){
+  if(G.mode==="robber"){return logMsg("❌ Déplacez d'abord le voleur.");}
+  updateTrophies();
+  if(G.ext.chevaliers&&G.barbar>=7)barbarianAttack();
+  G.cur=(G.cur+1)%G.n;
+  G.mode=null;
+  logMsg("— Tour de "+cur().name+" —");
+  if(G.ext.pecheurs){cur().res.poisson+=0;} // poisson collecté aux dés
+  checkWin(); render(); setHint("");
+}
+function nextSetup(){
+  // ordre aller-retour sur 2 tours
+  const s=G.setup; s.pos++;
+  if(s.pos>=G.order.length*2){
+    G.phase="main"; G.started=true;
+    logMsg("🏁 Placement terminé. À vous de jouer ! Tour de "+cur().name+".");
+    render(); setMode(null); return;
+  }
+  const total=G.order.length*2;
+  const idx=(s.pos<total/2)?G.order[s.pos]:G.order[total-1-s.pos];
+  G.cur=idx; render();
+}
+function setupDone(){
+  const s=G.setup;
+  if(s.step===0){s.step=1;G.mode="setup-road";setHint("Posez maintenant une route/navire gratuite partant de votre colonie.");}
+  else{
+    // production de la 2e colonie
+    if(s.round===2){
+      const v=G.board.vertices[s.lastV]; const p=cur();
+      v.hexes.forEach(hid=>{const h=G.board.hexes[hid];const r=TERRAIN_RES[h.terrain];if(r)p.res[r]+=1;});
+      logMsg("📦 "+p.name+" reçoit les ressources autour de sa 2e colonie.");
+    }
+    s.step=0;s.pos++;
+    if(s.pos>=G.order.length){if(s.round===1){s.round=2;s.pos=0;}else{G.phase="main";G.started=true;logMsg("🏁 Placement terminé. Tour de "+cur().name+".");render();setMode(null);return;}}
+    G.mode="setup-settlement";
+    const total=G.order.length;
+    const idx=(s.round===1)?G.order[s.pos]:G.order[total-1-s.pos];
+    G.cur=idx;
+    setHint(G.players[G.cur].name+" : posez votre colonie (gratuite).");
+    render();
+  }
+}
+
+/* ================= Victoire ================= */
+function checkWin(){
+  updateTrophies();
+  const winner=G.players.find(p=>p.vp>=G.vpTarget);
+  if(winner){
+    logMsg("🏆 <b>"+winner.name+" remporte la partie avec "+winner.vp+" PV !</b>");
+    G.mode="win"; setHint("🏆 "+winner.name+" gagne !");
+  }
+}
+
+/* ================= Rendu plateau ================= */
+const NS="http://www.w3.org/2000/svg";
+function svgEl(t,attrs){const e=document.createElementNS(NS,t);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function render(){
+  if(!G)return;
+  const board=document.getElementById("board");
+  board.innerHTML="";
+  const svg=svgEl("svg",{viewBox:"0 0 800 700",width:"100%"});
+  const ext=G.ext;
+  // cadre de mer (ext Marin)
+  if(ext.marin){
+    G.board.hexes[0];
+    const sea=svgEl("rect",{x:0,y:0,width:800,height:700,fill:"#14507a"});
+    svg.appendChild(sea);
+  } else {
+    svg.appendChild(svgEl("rect",{x:0,y:0,width:800,height:700,fill:ext.pecheurs?"#14507a":"#1b3d5c"}));
+  }
+  // hexagones
+  G.board.hexes.forEach(h=>{
+    const g=svgEl("g",{});
+    const pts=[];
+    for(let i=0;i<6;i++){const a=Math.PI/180*(60*i-90);pts.push((h.x+h.r*Math.cos(a))+","+(h.y+h.r*Math.sin(a)));}
+    const poly=svgEl("polygon",{points:pts.join(" "),fill:TERRAIN_FILL[h.terrain],stroke:"#0a2418","stroke-width":2});
+    g.appendChild(poly);
+    if(h.robber){g.appendChild(svgEl("text",{x:h.x,y:h.y+8,"text-anchor":"middle","font-size":26})).textContent="🦹";}
+    if(h.number){
+      const c=svgEl("circle",{cx:h.x,cy:h.y,r:16,fill:"#f6ecd8",stroke:"#333","stroke-width":1});g.appendChild(c);
+      const t=svgEl("text",{x:h.x,y:h.y+6,"text-anchor":"middle","font-size":18,"font-weight":"bold",fill:(h.number===6||h.number===8)?"#b02020":"#222"});g.appendChild(t);t.textContent=h.number;
+    } else if(h.terrain==="lac"){
+      const t=svgEl("text",{x:h.x,y:h.y+10,"text-anchor":"middle","font-size":26});g.appendChild(t);t.textContent="🐟";
+    } else if(h.terrain==="désert"){
+      const t=svgEl("text",{x:h.x,y:h.y+10,"text-anchor":"middle","font-size":26});g.appendChild(t);t.textContent="🏜️";
+    }
+    if(G.mode==="robber"&&h.terrain!=="lac"&&h.terrain!=="mer"){
+      const hot=svgEl("polygon",{points:pts.join(" "),fill:"rgba(240,160,90,.35)",stroke:"#f0a05a","stroke-width":3,cursor:"pointer"});
+      hot.addEventListener("click",()=>moveRobber(h));
+      g.appendChild(hot);
+    }
+    svg.appendChild(g);
+  });
+  // arêtes (routes/navires) cliquables
+  G.board.edges.forEach(e=>{
+    const a=G.board.vertices[e.a],b=G.board.vertices[e.b];
+    const mk=svgEl("line",{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:"transparent","stroke-width":16,cursor:(G.mode==="road"||G.mode==="setup-road")?"pointer":"default"});
+    mk.addEventListener("click",()=>clickEdge(e));
+    svg.appendChild(mk);
+    if(e.owner!==null){
+      const l=svgEl("line",{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:G.players[e.owner].color,"stroke-width":8,"stroke-linecap":"round"});
+      svg.appendChild(l);
+      if(e.ship){const t=svgEl("text",{x:(a.x+b.x)/2,y:(a.y+b.y)/2+5,"text-anchor":"middle","font-size":14});t.textContent="⛵";svg.appendChild(t);}
+    }
+    if(e.port){
+      const t=svgEl("text",{x:(a.x+b.x)/2,y:(a.y+b.y)/2-6,"text-anchor":"middle","font-size":12,fill:"#ffd","font-weight":"bold"});
+      t.textContent=e.port==="3:1"?"3:1":RES_EMOJI[e.port]+"2:1";
+      svg.appendChild(t);
+    }
+  });
+  // sommets (bâtiments) cliquables
+  G.board.vertices.forEach(v=>{
+    const hot=svgEl("circle",{cx:v.x,cy:v.y,r:12,fill:"transparent",cursor:(G.mode==="settlement"||G.mode==="city"||G.mode==="setup-settlement")?"pointer":"default"});
+    hot.addEventListener("click",()=>clickVertex(v));
+    svg.appendChild(hot);
+    if(v.building){
+      const p=G.players[v.building.player];
+      if(v.building.type==="colonie"){
+        const s=svgEl("polygon",{points:v.x+","+(v.y-9)+" "+(v.x-9)+","+(v.y+6)+" "+(v.x+9)+","+(v.y+6),fill:p.color,stroke:"#000","stroke-width":1});
+        svg.appendChild(s);
+      } else {
+        const r=svgEl("rect",{x:v.x-10,y:v.y-9,width:20,height:17,fill:p.color,stroke:"#000","stroke-width":1});
+        svg.appendChild(r);
+        const t=svgEl("text",{x:v.x,y:v.y+6,"text-anchor":"middle","font-size":10,fill:"#fff"});t.textContent="★";svg.appendChild(t);
+      }
+    }
+  });
+  board.appendChild(svg);
+  renderDash();
+}
+function moveRobber(h){
+  G.board.hexes.forEach(x=>x.robber=false); h.robber=true;
+  logMsg("🦹 Le voleur se déplace.");
+  // vol d'une carte au hasard chez un joueur adjacent
+  const victims=new Set();
+  G.board.vertices.forEach(v=>{if(v.building&&v.hexes.includes(h.id))victims.add(v.building.player);});
+  victims.delete(G.cur);
+  const arr=[...victims].filter(i=>Object.values(G.players[i].res).some(x=>x>0));
+  if(arr.length){const t=arr[Math.floor(Math.random()*arr.length)];const p=G.players[t];
+    const pool=[...RES,"papier","métal","tissu","poisson"].filter(r=>p.res[r]>0);
+    if(pool.length){const r=pool[Math.floor(Math.random()*pool.length)];p.res[r]--;cur().res[r]++;logMsg("🃏 "+cur().name+" vole 1 "+RES_EMOJI[r]+" à "+p.name+".");}}
+  G.mode=null; render();
+}
+function clickEdge(e){
+  const p=cur();
+  if(G.mode==="setup-road"){const err=tryBuildRoad(p,e);if(err)logMsg("❌ "+err);else{render();setupDone();}return;}
+  if(G.mode!=="road")return;
+  const err=tryBuildRoad(p,e);
+  if(err)logMsg("❌ "+err);else{updateTrophies();checkWin();render();}
+}
+function clickVertex(v){
+  const p=cur();
+  if(G.mode==="setup-settlement"){const err=tryBuildSettlement(p,v);if(err)logMsg("❌ "+err);else{G.setup.lastV=v.id;G.mode="setup-road";setHint("Posez une route/navire gratuite depuis votre colonie.");render();}return;}
+  if(G.mode==="settlement"){const err=tryBuildSettlement(p,v);if(err)logMsg("❌ "+err);else{checkWin();render();}return;}
+  if(G.mode==="city"){const err=tryBuildCity(p,v);if(err)logMsg("❌ "+err);else{checkWin();render();}return;}
+}
+
+/* ================= Tableau de bord ================= */
+function setHint(t){document.getElementById("hint").innerHTML=t;}
+function setMode(m){G.mode=m;render();}
+function renderDash(){
+  const p=cur();
+  let tt="Tour de "+p.name;
+  document.getElementById("curTitle").textContent=tt;
+  const bar=document.getElementById("curRes");
+  bar.innerHTML=[...RES,...(G.ext.pecheurs?["poisson"]:[]),...(G.ext.chevaliers?["papier","métal","tissu"]:[])]
+    .map(r=>"<span>"+RES_EMOJI[r]+" "+p.res[r]+"</span>").join("")+
+    "<span>🛣️ "+p.roads+"</span>"+(G.ext.marin?"<span>⛵ "+p.ships+"</span>":"")+"<span>🏠 "+p.sett+"</span><span>🏛️ "+p.cities+"</span><span>🂠 "+p.dev.length+"</span>";
+  const devCounts={};
+  p.dev.forEach(c=>devCounts[c]=(devCounts[c]||0)+1);
+  const fish=document.getElementById("fishRow");
+  let f="<div class='fishrow'>";
+  if(G.ext.pecheurs&&p.res.poisson>0){
+    f+="🐟 "+p.res.poisson+" → <button onclick=\"spendFish('2')\">2: 1 ressource</button><button onclick=\"spendFish('3')\">3: 1 route</button><button onclick=\"spendFish('5')\">5: 1 PV</button> ";
+  }
+  f+="<span style='margin-left:auto'>PV : <b>"+p.vp+" / "+G.vpTarget+"</b></span></div>";
+  fish.innerHTML=f;
+  document.getElementById("curTitle").insertAdjacentHTML("afterend","<div id='barbarWrap'></div>");
+  if(G.ext.chevaliers){
+    document.getElementById("barbarWrap").innerHTML="<div class='barbar-track' title='Avancée des barbares'>"+Array.from({length:7},(_,i)=>"<i class='"+(i<G.barbar?"on":"")+"'></i>").join("")+"</div>";
+  }
+  // actions
+  const act=document.getElementById("actions");
+  let html="";
+  const b=(m,label,active)=>"<button class='mode"+(G.mode===m?" active":"")+"' onclick='setMode(\""+m+"\")'>"+label+"</button>";
+  if(!G.started){
+    html+="<span style='font-size:13px'>Phase de placement initial — colonie puis route.</span>";
+  } else {
+    html+=b("road","🛣️ Route / ⛵ Navire")+b("settlement","🏠 Colonie")+b("city","🏛️ Ville");
+    html+="<button onclick='buyDev()'>🂠 Carte dév. (1🐑1🌾1⛏️)</button>";
+    if(p.dev.length){
+      html+="<button onclick='playDev(\"chevalier\")'>⚔️ Chevalier ("+p.knights+")</button>";
+      if(devCounts.monopole)html+="<button onclick='askMonopole()'>🎩 Monopole</button>";
+      if(devCounts.invention)html+="<button onclick='askInvention()'>🔍 Invention</button>";
+      if(devCounts.routes)html+="<button onclick='playDev(\"routes\")'>🛣️ Routes</button>";
+    }
+    if(G.ext.chevaliers)html+="<button onclick='buyImprovement()'>📜 Amélioration (📜💰🧵 → +1 PV)</button>";
+    html+="<button onclick='rollDice()' "+(G.dice===null?"":"")+">🎲 Lancer les dés</button>";
+    html+="<button onclick='endTurn()' style='background:#7a4a1e;border-color:#a86a2e'>⏭️ Fin de tour</button>";
+  }
+  act.innerHTML=html;
+  // joueurs
+  const pl=document.getElementById("players");
+  pl.innerHTML=G.players.map((q,i)=>
+    "<div class='p "+(i===G.cur?"cur":"")+"'><span class='dot' style='background:"+q.color+"'></span><b>"+q.name+"</b>"+
+    "<span>🛣️"+longestRoad(i)+"</span><span>⚔️"+q.knights+"</span><span>🏠"+(5-q.sett)+"</span>"+
+    (G.ext.pecheurs?"<span>🐟"+q.res.poisson+"</span>":"")+
+    (G.ext.marin&&q.explorateur?"<span>🚢</span>":"")+
+    "<span class='vpbadge'>"+q.vp+" PV</span></div>").join("");
+  // commerce
+  const gr=document.getElementById("giveRes"),gt=document.getElementById("getRes");
+  if(gr.options.length===0){
+    const list=[...RES,...(G.ext.pecheurs?["poisson"]:[]),...(G.ext.chevaliers?["papier","métal","tissu"]:[])];
+    list.forEach(r=>{gr.add(new Option(RES_EMOJI[r]+" "+r,r));gt.add(new Option(RES_EMOJI[r]+" "+r,r));});
+  }
+  const gv=gr.value,gtv=gt.value,ratio=tradeRatio(p,gv);
+  document.getElementById("tradeInfo").textContent=gv+" → "+gtv+" : taux "+ratio+":1 (ports 2:1 / 3:1 si possédés)";
+}
+function buyImprovement(){
+  const p=cur();
+  if(!canPay(p,COSTS.amelioration))return logMsg("❌ Il faut 1 papier + 1 métal + 1 tissu.");
+  pay(p,COSTS.amelioration);p.vp+=1;
+  logMsg("📜 "+p.name+" améliore sa ville : +1 PV.");
+  checkWin();render();
+}
+function spendFish(n){
+  const p=cur();n=parseInt(n);
+  if(p.res.poisson<n)return logMsg("❌ Pas assez de poissons.");
+  if(n===2){
+    const list=[...RES];const r=list[Math.floor(Math.random()*list.length)];
+    p.res.poisson-=2;p.res[r]+=1;logMsg("🐟 2 poissons : "+p.name+" reçoit 1 "+RES_EMOJI[r]+".");
+  } else if(n===3){
+    p.res.poisson-=3;p.res.bois++;p.res.brique++;logMsg("🐟 3 poissons : matériaux d'une route gratuits pour "+p.name+".");
+    setMode("road");
+  } else if(n===5){
+    p.res.poisson-=5;p.vp+=1;logMsg("🐟 5 poissons : +1 PV pour "+p.name+" !");
+  }
+  checkWin();render();
+}
+function askMonopole(){
+  const r=prompt("Ressource du monopole (bois, brique, laine, blé, minerai) :");
+  if(r&&RES.includes(r))playDev("monopole",r);
+}
+function askInvention(){
+  const r=prompt("Ressource voulue (bois, brique, laine, blé, minerai) :");
+  if(r&&RES.includes(r))playDev("invention",null,r);
+}
+document.getElementById("doTrade").addEventListener("click",()=>{
+  const p=cur();const gr=document.getElementById("giveRes"),gt=document.getElementById("getRes");
+  const give=gr.value,get=gt.value,ratio=tradeRatio(p,give);
+  if(p.res[give]<ratio)return logMsg("❌ Il vous faut "+ratio+" "+give+".");
+  p.res[give]-=ratio;p.res[get]+=1;
+  logMsg("🔁 "+p.name+" échange "+ratio+" "+RES_EMOJI[give]+" contre 1 "+RES_EMOJI[get]+".");
+  render();
+});
+
+/* ================= Écran de configuration ================= */
+const cfg=document.getElementById("cfgPlayers");
+for(let i=0;i<4;i++){
+  cfg.insertAdjacentHTML("beforeend",
+    "<span class='dot' style='background:"+COLORS[i]+"'></span>"+
+    "<input type='text' id='pn"+i+"' value='Joueur "+(i+1)+"' "+(i>1?"":"")+" />"+
+    (i>1?"<button onclick='this.previousElementSibling.value=\"\";this.style.display=\"none\"' style='padding:2px 8px'>✕ Retirer</button>":"<span></span>"));
+}
+document.getElementById("rndSeed").addEventListener("click",()=>{
+  document.getElementById("seed").value="catane-"+Math.floor(Math.random()*1e6);
+});
+document.getElementById("start").addEventListener("click",()=>{
+  const names=[];
+  for(let i=0;i<4;i++){const v=document.getElementById("pn"+i).value;if(v.trim())names.push(v);}
+  if(names.length<2)return alert("Il faut au moins 2 joueurs.");
+  const cfgE={
+    seed:document.getElementById("seed").value||"catane",
+    ext:{
+      marin:document.getElementById("extMarin").checked,
+      pecheurs:document.getElementById("extPecheurs").checked,
+      chevaliers:document.getElementById("extChevaliers").checked
+    },
+    names
+  };
+  document.getElementById("setup").style.display="none";
+  document.getElementById("game").style.display="block";
+  document.getElementById("seedLbl").textContent=cfgE.seed;
+  newGame(cfgE);
+  setMode("setup-settlement");
+  setHint(G.players[G.cur].name+" : cliquez sur un sommet pour poser votre colonie gratuite.");
+});
+document.getElementById("newGame").addEventListener("click",()=>{
+  location.reload();
+});
+</script>
+</body>
+</html>
